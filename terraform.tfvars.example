@@ -1,0 +1,11 @@
+project_id   = "my-gcp-project"
+github_owner = "my-org"
+# github_repo = "my-repo"   # uncomment for repo-level runners instead of org-level
+
+# Optional tuning
+# machine_type      = "e2-medium"   # 4 GB; "e2-small" = 2 GB
+# use_spot          = true          # ~60-90% cheaper, may be interrupted
+# min_runners       = 1
+# max_runners       = 3
+# schedule_cron     = "0 9 * * 1-5" # weekdays only
+# ssh_members   = ["user:you@example.com"]
