@@ -67,7 +67,7 @@ REG_TOKEN=$(retry 5 github_token registration) || { echo "ERROR: could not get r
 sudo -u "$RUNNER_USER" ./config.sh --unattended --replace \
   --url "${github_url}" \
   --token "$REG_TOKEN" \
-  --name "${runner_name}-$(hostname)" \
+  --name "${runner_name}.${zone}" \
   --labels "${runner_labels}" \
   --work _work
 unset REG_TOKEN

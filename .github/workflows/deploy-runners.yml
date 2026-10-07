@@ -62,10 +62,19 @@ jobs:
             -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
             -var="github_owner=${{ vars.GH_RUNNER_OWNER }}" \
             -var="github_repo=${{ vars.GH_RUNNER_REPO }}" \
-            -var="machine_type=${{ inputs.vm_type }}" \
+            -var="server_machine_type=${{ inputs.vm_type }}" \
             -var="runner_name=${{ inputs.runner_name }}" \
             -var="max_runners=${{ inputs.runner_count }}"
 
       - name: Terraform apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform apply -auto-approve tfplan
+
+      - name: Store GitHub PAT in Secret Manager
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          SECRET_ID=$(terraform output -raw github_token_secret_id)
+          printf '%s' "${{ secrets.GH_PAT }}" | \
+            gcloud secrets versions add "$SECRET_ID" \
+              --project="${{ vars.GCP_PROJECT_ID }}" \
+              --data-file=-

@@ -29,6 +29,7 @@ locals {
     common_script         = local.common_script
     github_url            = local.github_url
     runner_name           = var.runner_name
+    zone                  = var.zone
     runner_labels         = var.runner_labels
     runner_version        = var.runner_version
   })

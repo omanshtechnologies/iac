@@ -1,4 +1,137 @@
-1. https://developer.hashicorp.com/terraform/tutorials/gcp-get-started/install-cli
-2. terraform -install-autocomplete
-3. gcloud auth application-default login
-4. enter cloud storafe bucket name: reactappomansh
+GCP GitHub-runner infra (iac/) — dev team setup & deploy guide
+================================================================
+Read top to bottom the first time. After that, skip to "DEPLOY" for
+day-to-day use.
+
+0. PREREQUISITES (one-time per machine)
+----------------------------------------
+1. Install Terraform CLI (>= 1.6):
+   https://developer.hashicorp.com/terraform/tutorials/gcp-get-started/install-cli
+2. Install the Google Cloud CLI (gcloud):
+   https://cloud.google.com/sdk/docs/install
+3. (Optional, recommended) Install the GitHub CLI (gh) — used to check
+   registered runners and workflow runs: https://cli.github.com/
+4. Shell autocomplete (optional):
+   terraform -install-autocomplete
+5. Authenticate gcloud so Terraform's google provider can use your creds:
+   gcloud auth application-default login
+   gcloud config set project advocate-ocr-app
+
+1. ONE-TIME PROJECT SETUP (already done for advocate-ocr-app — skip unless
+   bootstrapping a NEW GCP project)
+----------------------------------------------------------------------------
+See the "CI deployment (GitHub Actions)" section in README.md for the full
+gcloud commands: creates the Terraform state bucket, the deploy service
+account + IAM roles, and Workload Identity Federation for CI. Only needed
+once per GCP project, not per developer.
+
+2. LOCAL CONFIG (one-time per clone)
+--------------------------------------
+cd iac
+cp terraform.tfvars.example terraform.tfvars
+# edit terraform.tfvars:
+#   project_id   = "advocate-ocr-app"
+#   github_owner = "omanshtechnologies"
+#   (leave github_repo commented out = org-level runner;
+#    uncomment + set it for a repo-level runner instead)
+
+3. TERRAFORM INIT (first time, and again if versions.tf's backend changes)
+------------------------------------------------------------------------------
+State lives in GCS, not locally — the backend block is intentionally
+partial, so you supply the bucket at init time:
+
+   terraform init \
+     -backend-config="bucket=reactappomansh" \
+     -backend-config="prefix=gh-runners"
+
+(Bucket name: reactappomansh)
+
+4. DEPLOY (terraform apply)
+------------------------------
+Step 1 — create the empty Secret Manager secret first (it has to exist
+before you can put a token in it):
+
+   terraform apply -target=google_secret_manager_secret.github_pat
+
+Step 2 — create a GitHub PAT and store it in Secret Manager (this value
+NEVER goes into Terraform state or git):
+
+   * Org-level runners (github_repo left unset): classic PAT with the
+     `admin:org` scope, or a fine-grained PAT with
+     Organization -> "Self-hosted runners: Read & write".
+   * Repo-level runners (github_repo set): fine-grained PAT with
+     Repository -> "Administration: Read & write".
+
+   export GITHUB_PAT=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+   # IMPORTANT sanity check before piping it anywhere — a previous outage
+   # was caused by $GITHUB_PAT being unset/empty in the shell that ran this,
+   # which silently stored a 2-character garbage value instead of the token:
+   echo ${#GITHUB_PAT}
+   # expect ~40 for a classic PAT, ~90+ for fine-grained. If it prints
+   # something small like 0-5, STOP and re-export the variable correctly.
+
+   printf '%s' "$GITHUB_PAT" | gcloud secrets versions add gh-runner-github-pat \
+     --project=advocate-ocr-app --data-file=-
+   unset GITHUB_PAT
+
+Step 3 — deploy everything else:
+
+   terraform apply
+
+5. HOW THE NEW VM BECOMES A GITHUB RUNNER (automatic, but know the flow)
+---------------------------------------------------------------------------
+Terraform only creates the VM; it does NOT register the runner itself.
+Registration happens inside the VM's boot/startup script
+(modules/server/scripts/startup.sh.tpl), which runs automatically on first
+boot and does, in order:
+   1. apt-get update, install Docker + Compose, OpenJDK 17, Maven
+      (install_docker / install_java / install_maven vars — default: on)
+   2. Fetch the GitHub PAT from Secret Manager, using the VM's own service
+      account (no key file involved) — see modules/server/scripts/
+      runner-common.sh.tpl
+   3. Exchange that PAT for a short-lived registration token via the
+      GitHub API
+   4. Download the actions-runner release, run
+      config.sh --unattended --replace --name "<runner_name>-<hostname>"
+   5. Install + start it as a systemd service (svc.sh install / start)
+   6. Also installs a shutdown-script that deregisters the runner cleanly
+      if the VM is ever stopped/deleted
+
+This whole sequence takes about 2-4 minutes after the VM reaches RUNNING.
+Verify it worked:
+
+   gh api orgs/omanshtechnologies/actions/runners
+   # (or repos/<owner>/<repo>/actions/runners for a repo-level runner)
+
+   your new runner should appear with status "online" and a name starting
+   with the runner_name prefix (default: gh-runner).
+
+6. RE-REGISTERING AN EXISTING VM (token rotated, or registration failed)
+-----------------------------------------------------------------------------
+`terraform apply` with no resource changes will NOT re-run the startup
+script on a VM that already exists — GCE only runs it at boot. If you
+rotate the PAT, or a VM never showed up as a runner, reboot it to force
+the startup script (and therefore registration) to run again:
+
+   gcloud compute instances reset <vm-name> --zone=<zone> --project=advocate-ocr-app
+
+Then wait ~2-4 min and re-check with the `gh api .../actions/runners`
+command from step 5. If it still doesn't show up, read the boot log for
+the actual error before trying anything else:
+
+   gcloud compute instances get-serial-port-output <vm-name> \
+     --zone=<zone> --project=advocate-ocr-app | grep -A5 "startup-script: ERROR"
+
+7. CI-DRIVEN DEPLOY (alternative to steps 3-4 above)
+-------------------------------------------------------
+Once the one-time GitHub repo setup in README.md ("CI deployment") is
+done, anyone with write access can trigger a deploy without touching
+Terraform locally:
+
+   GitHub repo -> Actions -> "Deploy GitHub runner fleet" -> Run workflow
+   (inputs: vm_type, runner_name, runner_count)
+
+That workflow runs `terraform init/plan/apply` itself and then pushes the
+`GH_PAT` org secret into Secret Manager automatically — no manual
+`gcloud secrets versions add` needed for CI-triggered deploys.

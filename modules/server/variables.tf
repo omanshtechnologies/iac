@@ -105,7 +105,7 @@ variable "github_repo" {
 }
 
 variable "runner_name" {
-  description = "Prefix for the GitHub-registered runner name. The actual name becomes '<runner_name>-<instance-hostname>'."
+  description = "Base for the GitHub-registered runner name. The actual name becomes '<runner_name>.<zone>'."
   type        = string
   default     = "gh-runner"
 }
@@ -119,7 +119,7 @@ variable "runner_labels" {
 variable "runner_version" {
   description = "actions/runner release to install (the runner self-updates after registering)."
   type        = string
-  default     = "2.328.0"
+  default     = "2.337.0"
 }
 
 variable "metadata" {

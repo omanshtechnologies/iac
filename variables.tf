@@ -132,7 +132,7 @@ variable "runner_labels" {
 variable "runner_version" {
   description = "actions/runner release to install (the runner self-updates after registering)."
   type        = string
-  default     = "2.328.0"
+  default     = "2.337.0"
 }
 
 variable "assign_public_ip" {

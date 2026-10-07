@@ -91,8 +91,17 @@ One-time setup, before the workflow can run for the first time:
    | `GCP_WIF_PROVIDER` | `projects/<project-number>/locations/global/workloadIdentityPools/github/providers/github` |
    | `GCP_DEPLOY_SA` | `gh-actions-terraform@<project>.iam.gserviceaccount.com` |
 
-The GitHub PAT still goes into Secret Manager out-of-band (see *Deploy*
-above) — it's never passed through the workflow or Terraform state.
+5. **Org secret** (org Settings → Secrets and variables → Actions →
+   Secrets, visible to this repo): `GH_PAT` — the GitHub PAT described above
+   (`admin:org`, or fine-grained *Self-hosted runners: Read & write* /
+   *Administration: Read & write*). This is an org-level secret, not a
+   repo-level one, so it's managed once centrally rather than per-repo.
+   After every `terraform apply`, the
+   workflow writes its value into Secret Manager as a new secret version via
+   `gcloud secrets versions add` (using the `roles/secretmanager.admin` grant
+   from step 2) — it never touches Terraform state. Rotate by updating this
+   one secret; no re-run of the manual `gcloud secrets versions add` command
+   from *Deploy* above is needed for CI-driven deploys.
 
 ## How it works
 

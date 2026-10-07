@@ -19,6 +19,11 @@ output "github_token_secret" {
   value       = google_secret_manager_secret.github_pat.id
 }
 
+output "github_token_secret_id" {
+  description = "Short secret id (not the full resource path), for scripting `gcloud secrets versions add`."
+  value       = google_secret_manager_secret.github_pat.secret_id
+}
+
 output "add_token_command" {
   description = "Run this once to store your GitHub token (paste it on stdin, it never touches Terraform state)."
   value       = "printf '%s' \"$GITHUB_PAT\" | gcloud secrets versions add ${google_secret_manager_secret.github_pat.secret_id} --project=${var.project_id} --data-file=-"
