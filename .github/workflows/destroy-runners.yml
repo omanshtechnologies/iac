@@ -1,0 +1,94 @@
+name: Destroy GitHub runner fleet
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_name:
+        description: "Base runner name to tear down (matches the runner_name used at deploy time)"
+        required: true
+        type: string
+        default: "gh-runner"
+      confirm:
+        description: "Type 'destroy' to confirm — this deletes the VM and deregisters the runner"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_WORKING_DIR: .
+
+jobs:
+  destroy:
+    name: terraform destroy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "destroy" ]; then
+            echo "::error::confirm input must be exactly 'destroy' — got '${{ inputs.confirm }}'"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="prefix=gh-runners"
+
+      - name: Terraform destroy
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform destroy -auto-approve \
+            -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
+            -var="github_owner=${{ vars.GH_RUNNER_OWNER }}" \
+            -var="github_repo=${{ vars.GH_RUNNER_REPO }}" \
+            -var="runner_name=${{ inputs.runner_name }}"
+
+      - name: Deregister any matching GitHub runner(s)
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          OWNER="${{ vars.GH_RUNNER_OWNER }}"
+          REPO="${{ vars.GH_RUNNER_REPO }}"
+          if [ -n "$REPO" ]; then
+            API="repos/$OWNER/$REPO/actions/runners"
+          else
+            API="orgs/$OWNER/actions/runners"
+          fi
+          PREFIX="${{ inputs.runner_name }}."
+
+          ids=$(gh api "$API" --paginate --jq \
+            ".runners[] | select(.name | startswith(\"$PREFIX\")) | .id")
+
+          if [ -z "$ids" ]; then
+            echo "No GitHub runner found with a name starting with '$PREFIX' — nothing to deregister."
+            exit 0
+          fi
+
+          for id in $ids; do
+            name=$(gh api "$API/$id" --jq .name)
+            echo "Deregistering runner '$name' (id $id)"
+            gh api -X DELETE "$API/$id"
+          done

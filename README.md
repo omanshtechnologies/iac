@@ -33,6 +33,14 @@ GitHub-hosted runners (not the fleet it manages, to avoid a bootstrap
 chicken-and-egg problem) and authenticates to GCP via Workload Identity
 Federation — no long-lived key is stored anywhere.
 
+`.github/workflows/destroy-runners.yml` tears it back down: `terraform
+destroy`, then deregisters any GitHub runner whose name starts with
+`<runner_name>.` (the `${runner_name}.${zone}` scheme the module
+registers under) — independent of whether the VM's own shutdown-script
+deregistration got a chance to run. Requires typing `destroy` into the
+`confirm` input to guard against an accidental dispatch. Uses the same
+one-time setup and repo variables as the deploy workflow.
+
 One-time setup, before the workflow can run for the first time:
 
 1. **State bucket** (Terraform state can't live on a GitHub-hosted runner's
