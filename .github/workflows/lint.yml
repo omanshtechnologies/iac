@@ -2,12 +2,9 @@ name: Lint & test infra
 
 on:
   pull_request:
-    paths:
-      - "iac/**"
   push:
     branches: [main]
-    paths:
-      - "iac/**"
+  workflow_dispatch:  
 
 permissions:
   contents: read
@@ -24,11 +21,9 @@ jobs:
           terraform_version: "1.9.8"
 
       - name: terraform fmt
-        working-directory: iac
         run: terraform fmt -check -recursive
 
       - name: terraform validate (root + modules)
-        working-directory: iac
         run: |
           set -euo pipefail
           for dir in . modules/gh-runner-mig modules/server; do
@@ -42,7 +37,6 @@ jobs:
           tflint_version: latest
 
       - name: tflint
-        working-directory: iac
         run: |
           tflint --init
           tflint --recursive
@@ -62,7 +56,7 @@ jobs:
           go-version: "1.22"
 
       - name: go test
-        working-directory: iac/test
+        working-directory: test
         env:
           GOFLAGS: -mod=mod
         run: go test ./... -v -timeout 20m
