@@ -18,6 +18,11 @@ on:
         required: true
         type: string
         default: "1"
+      runner_labels:
+        description: "Extra labels on the runner, comma separated (self-hosted,linux,x64 are added automatically)"
+        required: true
+        type: string
+        default: "self-hosted,insta-crm"
 
 permissions:
   contents: read
@@ -64,6 +69,7 @@ jobs:
             -var="github_repo=${{ vars.GH_RUNNER_REPO }}" \
             -var="server_machine_type=${{ inputs.vm_type }}" \
             -var="runner_name=${{ inputs.runner_name }}" \
+            -var="runner_labels=${{ inputs.runner_labels }}" \
             -var="max_runners=${{ inputs.runner_count }}"
 
       - name: Terraform apply
